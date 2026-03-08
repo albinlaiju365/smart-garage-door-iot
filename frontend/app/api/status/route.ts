@@ -13,28 +13,39 @@ let latestStatus = 'unknown';
 // For this prototype, we'll try a fast fetch from the broker.
 
 export async function GET() {
-    return new Promise((resolve) => {
+    try {
         const client = mqtt.connect(MQTT_BROKER);
 
-        const timeout = setTimeout(() => {
-            client.end();
-            resolve(NextResponse.json({ connected: false, status: 'timed_out' }));
-        }, 3000);
+        const result = await new Promise<NextResponse>((resolve) => {
+            const timeout = setTimeout(() => {
+                client.end();
+                resolve(NextResponse.json({ connected: false, status: 'offline' }));
+            }, 4000);
 
-        client.on('connect', () => {
-            client.subscribe(TOPIC_STAT);
-            // In a real MQTT setup, we'd use Retained messages on the broker
-        });
+            client.on('connect', () => {
+                client.subscribe(TOPIC_STAT);
+            });
 
-        client.on('message', (topic: string, message: Buffer) => {
-            if (topic === TOPIC_STAT) {
+            client.on('message', (topic: string, message: Buffer) => {
+                if (topic === TOPIC_STAT) {
+                    clearTimeout(timeout);
+                    client.end();
+                    resolve(NextResponse.json({
+                        connected: true,
+                        status: message.toString()
+                    }));
+                }
+            });
+
+            client.on('error', (err) => {
                 clearTimeout(timeout);
                 client.end();
-                resolve(NextResponse.json({
-                    connected: true,
-                    status: message.toString()
-                }));
-            }
+                resolve(NextResponse.json({ connected: false, status: 'error' }));
+            });
         });
-    });
+
+        return result;
+    } catch (error) {
+        return NextResponse.json({ connected: false, status: 'server_error' }, { status: 500 });
+    }
 }
